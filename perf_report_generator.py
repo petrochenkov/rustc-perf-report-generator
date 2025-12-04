@@ -1,9 +1,15 @@
 from dataclasses import dataclass
+from typing import Tuple
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.common.alert import Alert
 
+BENCH_TABLE_CLASS = 'bench-table'
 
 @dataclass
 class BenchTable:
@@ -42,7 +48,11 @@ class BenchmarkResult:
 
 def download_benchmarks_data(first_sha: str, second_sha: str, stat: str, tab: str) -> list[BenchTable]:
     url = construct_query_url(first_sha, second_sha, stat, tab)
-    browser = dowload_url(url)
+    browser, alert_shown = dowload_url(url)
+
+    if alert_shown:
+        print(f'An alert was trigerred, commits {first_sha} and {second_sha} are invalid for comparison')
+        exit(1)
 
     return parse_benchmark_tables(browser)
 
@@ -61,24 +71,30 @@ def construct_query_url(first_sha: str, second_sha: str, stat: str, tab: str):
     return base_url
 
 
-def dowload_url(url: str) -> WebDriver:
+def dowload_url(url: str) -> Tuple[WebDriver, bool]:
     print(f"Started downloading URL {url}")
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
     browser = webdriver.Chrome(options=chrome_options)
     browser.get(url)
 
-    import time
-    time.sleep(5)
+    bench_tables_ec = EC.presence_of_element_located((By.CLASS_NAME, BENCH_TABLE_CLASS))
+    alert_present_ec = EC.alert_is_present()
 
-    print(f'Finished downloading URL {url}')
+    try:
+        element = WebDriverWait(browser, timeout=5).until(EC.any_of(alert_present_ec, bench_tables_ec))
+    except TimeoutException:
+        print('Timeoutted while waiting for the page to load')
+        exit(1)
 
-    return browser
+    print('Finished waiting for page load')
+
+    return (browser, type(element) is Alert)
 
 
 def parse_benchmark_tables(browser: WebDriver) -> list[BenchTable]:
-    elem = browser.find_element(value="app")
-    tables = elem.find_elements(By.CLASS_NAME, "bench-table")
+    elem = browser.find_element(value='app')
+    tables = elem.find_elements(By.CLASS_NAME, BENCH_TABLE_CLASS)
 
     bench_tables = []
     for table in tables:
@@ -159,6 +175,8 @@ def main():
     aggregated_results: list[AggregatedBenchData] = list(mapped_results)
 
     serialize_results_to_csv(aggregated_results, output_file_path)
+
+    print(f'Serialized results to the output file {output_file_path}')
 
 
 if __name__ == "__main__":
