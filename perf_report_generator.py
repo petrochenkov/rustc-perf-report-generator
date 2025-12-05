@@ -67,6 +67,7 @@ def construct_query_url(first_sha: str, second_sha: str, stat: str, tab: str):
     base_url = add_query_param(base_url, 'end', second_sha)
     base_url = add_query_param(base_url, 'stat', stat)
     base_url = add_query_param(base_url, 'tab', tab)
+    base_url = add_query_param(base_url, 'nonRelevant', 'true')
 
     return base_url
 
@@ -140,7 +141,7 @@ class AggregatedBenchData:
 def serialize_results_to_csv(results: list[AggregatedBenchData], output_file_path: str):
     with open(output_file_path, 'w') as fout:
         fout.writelines([
-            'Benchmark;Sum;Avg;\n',
+            'Benchmark;Sum;Avg\n',
             *list(map(lambda r: f'{r.name};{r.sum};{r.avg}\n', results))
         ])
 
