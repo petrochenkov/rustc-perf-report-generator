@@ -11,6 +11,7 @@ from selenium.webdriver.common.alert import Alert
 
 BENCH_TABLE_CLASS = 'bench-table'
 
+
 @dataclass
 class BenchTable:
     name: str
@@ -27,6 +28,8 @@ class BenchmarkResult:
     change: float
     sig_threshold: float
     sig_factor: float
+    before_raw: float
+    after_raw: float
 
     @staticmethod
     def parse_from_row(raw_row: list[str]) -> BenchmarkResult:
@@ -36,14 +39,16 @@ class BenchmarkResult:
             scenario=raw_row[3],
             backend=raw_row[4],
             target=raw_row[5],
-            change=BenchmarkResult.parse_number(raw_row[6]),
-            sig_threshold=BenchmarkResult.parse_number(raw_row[7]),
-            sig_factor=BenchmarkResult.parse_number(raw_row[8]),
+            change=BenchmarkResult.parse_number(raw_row[6][:-1]),
+            sig_threshold=BenchmarkResult.parse_number(raw_row[7][:-1]),
+            sig_factor=BenchmarkResult.parse_number(raw_row[8][:-1]),
+            before_raw=BenchmarkResult.parse_number(raw_row[9]),
+            after_raw=BenchmarkResult.parse_number(raw_row[10]),
         )
 
     @staticmethod
     def parse_number(s: str) -> float:
-        return float(s[:-1])
+        return float(s.replace(',', ''))
 
 
 def download_benchmarks_data(first_sha: str, second_sha: str, stat: str, tab: str) -> list[BenchTable]:
@@ -68,6 +73,7 @@ def construct_query_url(first_sha: str, second_sha: str, stat: str, tab: str):
     base_url = add_query_param(base_url, 'stat', stat)
     base_url = add_query_param(base_url, 'tab', tab)
     base_url = add_query_param(base_url, 'nonRelevant', 'true')
+    base_url = add_query_param(base_url, 'showRawData', 'true')
 
     return base_url
 
@@ -115,8 +121,8 @@ def parse_benchmark_tables(browser: WebDriver) -> list[BenchTable]:
                 name=table_id,
                 results=bench_results
             ))
-        except Exception as ex:
-            print(f'Table "{table_id}" does not contain results, skipping it')
+        except Exception:
+            print(f'Table "{table_id}" does not contain parsable results, skipping it')
 
     return bench_tables
 
