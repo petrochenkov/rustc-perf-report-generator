@@ -135,42 +135,54 @@ def read_commits_file(file_path: str) -> list[(str, str)]:
 
 
 class AggregatedBenchData:
-    def __init__(self, name: str, raw_values: list[float]):
+    def __init__(self, name: str, raw_values: dict[str, list[float]]):
         assert len(raw_values) > 0
 
         self.name = name
-        self.sum = sum(raw_values)
-        self.avg = sum(raw_values) / len(raw_values)
+        self.values = dict(map(lambda p: (p[0], sum(p[1])), raw_values.items()))
+
+        self.ordered_values = list(self.values.items())
+        self.ordered_values.sort(key = lambda x: x[0])
+
+
+    def to_csv_line(self) -> str:
+        return f'{self.name};{";".join(map(lambda x: str(x[1]), self.ordered_values))}\n'
 
     def __repr__(self) -> str:
-        return f'{self.name} = ({self.sum}, {self.avg})'
+        return f'{self.name} = ({self.values})'
 
 
 def serialize_results_to_csv(results: list[AggregatedBenchData], output_file_path: str):
     with open(output_file_path, 'w') as fout:
         fout.writelines([
-            'Benchmark;Sum;Avg\n',
-            *list(map(lambda r: f'{r.name};{r.sum};{r.avg}\n', results))
+            'Benchmark;SumChange;SumRawChange\n',
+            *list(map(lambda r: r.to_csv_line(), results))
         ])
 
 
 def aggregate_tables_data(tables: list[BenchTable], output_file_path: str):
     print('Started serializing results')
 
-    benches_results: dict[str, list[float]] = {}
+    benches_results: dict[str, dict[str, list[float]]] = {}
 
     for table in tables:
         for res in table.results:
             bench_full_name = '::'.join([table.name, res.name, res.profile, res.scenario])
-            if bench_full_name not in benches_results:
-                benches_results[bench_full_name] = []
 
-            benches_results[bench_full_name].append(res.change)
+            def get_or_create(d, key, default):
+                if key not in d:
+                    d[key] = default
+
+                return d[key]
+
+            bench_results =  get_or_create(benches_results, bench_full_name, {})
+            get_or_create(bench_results, 'change', []).append(res.change)
+            get_or_create(bench_results, 'raw_change', []).append(res.after_raw - res.before_raw)
 
     filtered_results = filter(lambda x: len(x[1]) > 0, benches_results.items())
     mapped_results = map(lambda x: AggregatedBenchData(x[0], x[1]), filtered_results)
     aggregated_results: list[AggregatedBenchData] = list(mapped_results)
-    aggregated_results.sort(key=lambda a: a.sum)
+    aggregated_results.sort(key=lambda a: a.values['change'])
 
     serialize_results_to_csv(aggregated_results, output_file_path)
 
