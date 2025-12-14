@@ -1,7 +1,17 @@
 Use:
-```sh
-python .\perf_report_generator.py ./commits.txt ./output.csv
-```
+
+- For the whole pipeline:
+    ```sh
+    python ./perf_report_generator.py ./commits.txt ./output.csv
+    ```
+- Download data and save to pickle file:
+    ```sh
+    python ./perf_report_generator.py download ./commits.txt ./tables.pkl
+    ```
+- Aggregate data from pickle file and save to csv file:
+    ```sh
+    python ./perf_report_generator.py aggregate ./tables.pkl ./output.csv
+    ```
 
 Input file (`commits.txt`) example:
 ```
@@ -13,3 +23,4 @@ f21fbac535ab2c3bc50db20547f4d48477357103 1c6de215099bbe33668de762f9591187f6c25ee
 1e008dd5d83e782ad37fc9cf6824733f824cc8cd da8321773a5c3306e1ff159cf0560c9f89f016b9
 f1bc669636023c8643602431791c7f26e5a6edef 19cab6b878ab18dce4816d85ac52b317214c485f
 ```
+

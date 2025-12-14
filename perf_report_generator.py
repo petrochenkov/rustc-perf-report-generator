@@ -1,13 +1,15 @@
+import pickle
 from dataclasses import dataclass
 from typing import Tuple
+
 from selenium import webdriver
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.alert import Alert
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.common.alert import Alert
+from selenium.webdriver.support.ui import WebDriverWait
 
 BENCH_TABLE_CLASS = 'bench-table'
 
@@ -15,7 +17,7 @@ BENCH_TABLE_CLASS = 'bench-table'
 @dataclass
 class BenchTable:
     name: str
-    results: list[BenchmarkResult]
+    results: list['BenchmarkResult']
 
 
 @dataclass
@@ -32,7 +34,7 @@ class BenchmarkResult:
     after_raw: float
 
     @staticmethod
-    def parse_from_row(raw_row: list[str]) -> BenchmarkResult:
+    def parse_from_row(raw_row: list[str]) -> 'BenchmarkResult':
         return BenchmarkResult(
             name=raw_row[1],
             profile=raw_row[2],
@@ -53,7 +55,7 @@ class BenchmarkResult:
 
 def download_benchmarks_data(first_sha: str, second_sha: str, stat: str, tab: str) -> list[BenchTable]:
     url = construct_query_url(first_sha, second_sha, stat, tab)
-    browser, alert_shown = dowload_url(url)
+    browser, alert_shown = download_url(url)
 
     if alert_shown:
         print(f'An alert was trigerred, commits {first_sha} and {second_sha} are invalid for comparison')
@@ -78,7 +80,7 @@ def construct_query_url(first_sha: str, second_sha: str, stat: str, tab: str):
     return base_url
 
 
-def dowload_url(url: str) -> Tuple[WebDriver, bool]:
+def download_url(url: str) -> Tuple[WebDriver, bool]:
     print(f"Started downloading URL {url}")
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
@@ -94,9 +96,9 @@ def dowload_url(url: str) -> Tuple[WebDriver, bool]:
         print('Timeoutted while waiting for the page to load')
         exit(1)
 
-    print('Finished waiting for page load')
+    print('Finished downloading page')
 
-    return (browser, type(element) is Alert)
+    return browser, type(element) is Alert
 
 
 def parse_benchmark_tables(browser: WebDriver) -> list[BenchTable]:
@@ -152,30 +154,18 @@ def serialize_results_to_csv(results: list[AggregatedBenchData], output_file_pat
         ])
 
 
-def main():
-    import sys
-    commits_file_path, output_file_path = sys.argv[1], sys.argv[2]
-
-    commits = read_commits_file(commits_file_path)
+def aggregate_tables_data(tables: list[BenchTable], output_file_path: str):
+    print('Started serializing results')
 
     benches_results: dict[str, list[float]] = {}
-    for [from_commit, to_commit] in commits:
-        print(f'Processing commits: {from_commit}, {to_commit}')
 
-        bench_tables = download_benchmarks_data(
-            from_commit,
-            to_commit,
-            'instructions:u',
-            'compile'
-        )
+    for table in tables:
+        for res in table.results:
+            bench_full_name = '::'.join([table.name, res.name, res.profile, res.scenario])
+            if bench_full_name not in benches_results:
+                benches_results[bench_full_name] = []
 
-        for table in bench_tables:
-            for res in table.results:
-                bench_full_name = '::'.join([table.name, res.name, res.profile, res.scenario])
-                if bench_full_name not in benches_results:
-                    benches_results[bench_full_name] = []
-
-                benches_results[bench_full_name].append(res.change)
+            benches_results[bench_full_name].append(res.change)
 
     filtered_results = filter(lambda x: len(x[1]) > 0, benches_results.items())
     mapped_results = map(lambda x: AggregatedBenchData(x[0], x[1]), filtered_results)
@@ -185,6 +175,56 @@ def main():
     serialize_results_to_csv(aggregated_results, output_file_path)
 
     print(f'Serialized results to the output file {output_file_path}')
+
+
+def download_tables(commits_file_path: str) -> list[BenchTable]:
+    commits = read_commits_file(commits_file_path)
+    tables = []
+
+    for [from_commit, to_commit] in commits:
+        print(f'Downloading commits data: {from_commit}, {to_commit}')
+
+        tables.extend(download_benchmarks_data(
+            from_commit,
+            to_commit,
+            'instructions:u',
+            'compile'
+        ))
+
+        print('Downloaded commits data')
+
+    return tables
+
+
+def execute_download_command(commits_file_path: str, output_file_path: str):
+    tables = download_tables(commits_file_path)
+
+    with open(output_file_path, 'wb') as fout:
+        pickle.dump(tables, fout)
+
+
+def execute_aggregate_command(tables_file_path: str, output_file_path: str):
+    with open(tables_file_path, 'rb') as fin:
+        tables: list[BenchTable] = pickle.load(fin)
+
+    aggregate_tables_data(tables, output_file_path)
+
+
+def main():
+    import sys
+
+    command = sys.argv[1]
+
+    if command == 'download':
+        commits_file_path, output_file_path = sys.argv[2], sys.argv[3]
+        execute_download_command(commits_file_path, output_file_path)
+    elif command == 'aggregate':
+        tables_file_path, output_file_path = sys.argv[2], sys.argv[3]
+        execute_aggregate_command(tables_file_path, output_file_path)
+    else:
+        commits_file_path, output_file_path = sys.argv[1], sys.argv[2]
+        tables = download_tables(commits_file_path)
+        aggregate_tables_data(tables, output_file_path)
 
 
 if __name__ == "__main__":
